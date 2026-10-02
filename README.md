@@ -14,11 +14,11 @@ No installation, server, or database connection is required.
 ## What it supports
 
 - Sybase `isql` output with a dashed separator beneath the column headers.
-- Multiple result rows, provided each row fits on one output line.
+- Multiple result rows, including rows and headers wrapped across matching fixed-width output lines.
 - Query prompt lines such as `1>` and `2> go`.
 - Spaces inside values, including descriptions and dates.
 
-Wrapped or malformed rows are reported instead of being shown as a potentially incorrect table. If a row is wrapped, try widening the terminal and rerunning the query.
+Malformed or incomplete rows are reported instead of being shown as a potentially incorrect table. Wrapped output is supported when each row follows the same line layout as the dashed separator.
 
 ## Privacy
 
@@ -26,4 +26,4 @@ Formatting happens locally in the browser. The page does not send pasted queries
 
 ## Limitations
 
-This initial version is designed for ordinary, unwrapped `isql` output. Other output formats may not parse correctly.
+The viewer is designed for fixed-width `isql` output. Other output formats may not parse correctly.
