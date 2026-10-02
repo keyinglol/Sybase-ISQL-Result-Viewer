@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sybase Result Viewer</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Arial, sans-serif;
+      color: #172033;
+      background: #f5f7fb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body { margin: 0; }
+
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 32px 24px 48px;
+    }
+
+    h1 { margin: 0; font-size: 1.8rem; }
+
+    .intro {
+      margin: 8px 0 24px;
+      color: #526075;
+      line-height: 1.5;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 280px;
+      resize: vertical;
+      padding: 14px;
+      border: 1px solid #aeb9cb;
+      border-radius: 8px;
+      background: #fff;
+      color: #172033;
+      font: 0.875rem/1.45 Consolas, "Courier New", monospace;
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin: 14px 0 22px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 16px;
+      background: #0756bd;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    button:hover { background: #044897; }
+
+    button.secondary {
+      background: #e5eaf3;
+      color: #24324a;
+    }
+
+    button.secondary:hover { background: #d8e0ed; }
+
+    #message {
+      display: none;
+      margin: 0 0 18px;
+      padding: 12px 14px;
+      border-radius: 6px;
+      line-height: 1.4;
+    }
+
+    #message.error {
+      display: block;
+      background: #fff0f0;
+      border: 1px solid #e5a1a1;
+      color: #8a1f1f;
+    }
+
+    #message.success {
+      display: block;
+      background: #effaf2;
+      border: 1px solid #9bd3a8;
+      color: #176532;
+    }
+
+    .table-wrap {
+      display: none;
+      overflow-x: auto;
+      border: 1px solid #cbd4e2;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      white-space: nowrap;
+      font-size: 0.875rem;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #e1e6ef;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #eaf1fc;
+      color: #132f5c;
+      font-weight: 700;
+    }
+
+    tbody tr:nth-child(even) { background: #f8faff; }
+    tbody tr:last-child td { border-bottom: 0; }
+
+    .note {
+      margin-top: 20px;
+      color: #59677d;
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Sybase Result Viewer</h1>
+    <p class="intro">Paste fixed-width output from Sybase <code>isql</code>, then format it into a table. Processing stays in this browser; nothing is uploaded.</p>
+
+    <label for="source">Sybase output</label>
+    <textarea id="source" spellcheck="false" placeholder="Paste the complete isql output here."></textarea>
+    <div class="actions">
+      <button id="format" type="button">Format table</button>
+      <button id="clear" class="secondary" type="button">Clear</button>
+    </div>
+
+    <div id="message" role="status" aria-live="polite"></div>
+    <div id="table-wrap" class="table-wrap">
+      <table>
+        <thead id="table-head"></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+
+    <p class="note">This first version supports one-line result rows. If an input contains a wrapped or malformed row, it stops and identifies the line instead of displaying incorrect data.</p>
+  </main>
+
+  <script>
+    "use strict";
+
+    const source = document.getElementById("source");
+    const formatButton = document.getElementById("format");
+    const clearButton = document.getElementById("clear");
+    const message = document.getElementById("message");
+    const tableWrap = document.getElementById("table-wrap");
+    const tableHead = document.getElementById("table-head");
+    const tableBody = document.getElementById("table-body");
+
+    function showMessage(text, type) {
+      message.textContent = text;
+      message.className = type;
+    }
+
+    function resetResult() {
+      message.textContent = "";
+      message.className = "";
+      tableHead.replaceChildren();
+      tableBody.replaceChildren();
+      tableWrap.style.display = "none";
+    }
+
+    function getColumnRanges(separatorLine) {
+      const ranges = [];
+      const hyphenGroups = /-+/g;
+      let match;
+
+      while ((match = hyphenGroups.exec(separatorLine)) !== null) {
+        ranges.push({ start: match.index, end: match.index + match[0].length });
+      }
+
+      return ranges;
+    }
+
+    function isRowCountLine(line) {
+      return /^\s*\(\d+\s+rows?\s+affected\)\s*$/i.test(line);
+    }
+
+    function renderTable(columns, rows) {
+      const headerRow = document.createElement("tr");
+      columns.forEach((column) => {
+        const cell = document.createElement("th");
+        cell.scope = "col";
+        cell.textContent = column;
+        headerRow.append(cell);
+      });
+      tableHead.append(headerRow);
+
+      rows.forEach((row) => {
+        const tableRow = document.createElement("tr");
+        row.forEach((value) => {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          tableRow.append(cell);
+        });
+        tableBody.append(tableRow);
+      });
+
+      tableWrap.style.display = "block";
+    }
+
+    function parseResult(text) {
+      const lines = text.replace(/\r\n?/g, "\n").split("\n");
+      const separatorIndex = lines.findIndex((line) => {
+        const groups = getColumnRanges(line);
+        return groups.length > 0 && line.replace(/[\s-]/g, "") === "";
+      });
+
+      if (separatorIndex < 1) {
+        throw new Error("Could not find the dashed column separator line. Paste the complete fixed-width isql result.");
+      }
+
+      const headerLine = lines[separatorIndex - 1];
+      const ranges = getColumnRanges(lines[separatorIndex]);
+      const columns = ranges.map((range) => headerLine.slice(range.start, range.end).trim());
+
+      if (columns.some((column) => column.length === 0)) {
+        throw new Error("The column header line does not align with the separator line.");
+      }
+
+      const rows = [];
+      for (let index = separatorIndex + 1; index < lines.length; index += 1) {
+        const line = lines[index];
+
+        if (isRowCountLine(line)) {
+          break;
+        }
+
+        if (line.trim() === "") {
+          continue;
+        }
+
+        const firstColumn = line.slice(ranges[0].start, ranges[0].end).trim();
+        if (firstColumn === "") {
+          throw new Error(`Unsupported wrapped or malformed result row at input line ${index + 1}. Use wider terminal output, then try again.`);
+        }
+
+        rows.push(ranges.map((range) => line.slice(range.start, range.end).trim()));
+      }
+
+      return { columns, rows };
+    }
+
+    formatButton.addEventListener("click", () => {
+      resetResult();
+
+      if (source.value.trim() === "") {
+        showMessage("Paste Sybase isql output before formatting.", "error");
+        return;
+      }
+
+      try {
+        const result = parseResult(source.value);
+        renderTable(result.columns, result.rows);
+        showMessage(`Formatted ${result.rows.length} row${result.rows.length === 1 ? "" : "s"} and ${result.columns.length} columns.`, "success");
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    });
+
+    clearButton.addEventListener("click", () => {
+      source.value = "";
+      resetResult();
+      source.focus();
+    });
+  </script>
+</body>
+</html>
